@@ -114,9 +114,8 @@ button:focus-visible, input:focus-visible { outline:3px solid var(--sky); outlin
 #gpsNote b { color:var(--ink); }
 
 /* 지도 위 표시 */
-.me { width:34px; height:34px; position:relative; }
-.me .halo { position:absolute; inset:0; border-radius:50%; background:rgba(31,98,176,.18); }
-.me svg { position:absolute; inset:3px; width:28px; height:28px; transition:transform .4s; }
+.me { width:52px; height:52px; position:relative; filter:drop-shadow(0 2px 3px rgba(0,0,0,.3)); }
+.me svg { position:absolute; inset:0; }
 .dest-pin svg { width:34px; height:42px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
 .leaflet-popup-content { font-family:var(--font); font-size:14px; margin:12px 14px; }
 .leaflet-popup-content button { display:block; width:100%; margin-top:6px; padding:9px 12px; border-radius:10px; background:var(--blue); color:#fff; font-weight:700; }
@@ -216,11 +215,11 @@ const MODE = {
 };
 
 // ── 지도 ──────────────────────────────────────────
-const map = L.map('map', { zoomControl:false, attributionControl:true, rotate:true, rotateControl:false, touchRotate:false, shiftKeyRotate:false, bearing:0 }).setView(START_VIEW, 16);
+const map = L.map('map', { zoomControl:false, attributionControl:true, rotate:true, rotateControl:false, maxZoom:21, touchZoom:'center', doubleClickZoom:'center', scrollWheelZoom:'center', touchRotate:false, shiftKeyRotate:false, bearing:0 }).setView(START_VIEW, 16);
 map.attributionControl.setPrefix(false).addAttribution('지도 © 브이월드 · 경로 © OpenStreetMap, Valhalla');
 const vw = (layer) => L.tileLayer(
   `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/${layer}/{z}/{y}/{x}.${layer === 'Satellite' ? 'jpeg' : 'png'}`,
-  { minZoom:6, maxZoom:19 });
+  { minZoom:6, maxZoom:21, maxNativeZoom:19 });
 const layers = {
   Base: vw('Base'),
   Satellite: L.layerGroup([vw('Satellite'), vw('Hybrid')]),
@@ -283,8 +282,17 @@ function maneuverIcon(type) {
 const VOICE_ON = SVG('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>');
 const VOICE_OFF = SVG('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>');
 
-const meIcon = () => L.divIcon({ className:'', iconSize:[34,34], iconAnchor:[17,17],
-  html:`<div class="me"><div class="halo"></div><svg viewBox="0 0 28 28" id="meArrow"><circle cx="14" cy="14" r="10" fill="#1f62b0" stroke="#fff" stroke-width="3"/><path d="M14 7l4.5 10L14 14.6 9.5 17z" fill="#fff"/></svg></div>` });
+const MODE_GLYPH = {
+  pedestrian: '<circle cx="13" cy="4.5" r="1.9" fill="#fff" stroke="none"/><path d="M10.5 20.5l2-5.5 2.7 2.6v2.9M8.5 12l3-3.6 2.8 1.8 2.7 1M11.5 8.4l-1.2 5"/>',
+  bicycle: '<circle cx="6.5" cy="15.5" r="3.6"/><circle cx="17.5" cy="15.5" r="3.6"/><path d="M6.5 15.5l3.6-7h4.6l2.8 7M10.1 8.5l3.8 7M13.6 5.5h2"/>',
+  auto: '<path d="M4.5 16v-3.6l2-4.6h11l2 4.6V16z"/><circle cx="8.3" cy="16.4" r="1.5" fill="#fff"/><circle cx="15.7" cy="16.4" r="1.5" fill="#fff"/><path d="M4.5 12.4h15"/>',
+};
+const meIcon = () => L.divIcon({ className:'', iconSize:[52,52], iconAnchor:[26,26],
+  html:`<div class="me"><svg viewBox="0 0 52 52" width="52" height="52">
+    <g id="meCone" style="transform-origin:26px 26px; transition:transform .4s"><path d="M26 1.5l8.5 11h-17z" fill="#1f62b0" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></g>
+    <circle cx="26" cy="26" r="15.5" fill="#1f62b0" stroke="#fff" stroke-width="3.5"/>
+    <g transform="translate(15 15) scale(.92)" fill="none" stroke="#fff" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">${MODE_GLYPH[S.mode]}</g>
+  </svg></div>` });
 const destIcon = L.divIcon({ className:'dest-pin', iconSize:[34,42], iconAnchor:[17,41],
   html:'<svg viewBox="0 0 34 42"><path d="M17 41S3 26 3 16a14 14 0 0 1 28 0c0 10-14 25-14 25z" fill="#c2410c" stroke="#fff" stroke-width="2.5"/><circle cx="17" cy="16" r="5" fill="#fff"/></svg>' });
 
@@ -456,6 +464,7 @@ async function fetchRoute(from, to) {
   const body = {
     locations: [{ lat: from.lat, lon: from.lng, ...(from.heading != null && S.nav ? { heading: Math.round(from.heading), heading_tolerance: 60 } : {}) }, { lat: to.lat, lon: to.lng }],
     costing: S.mode, language: 'ko-KR', units: 'kilometers',
+    ...(S.mode === 'pedestrian' ? { costing_options: { pedestrian: { sidewalk_factor: 0.8, walkway_factor: 0.9 } } } : {}),
   };
   const res = await fetch(ROUTER, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
   const d = await res.json();
@@ -464,7 +473,52 @@ async function fetchRoute(from, to) {
   const pts = decode6(leg.shape);
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + map.distance(pts[i - 1], pts[i]));
-  return { pts, cum, total: cum[cum.length - 1], time: d.trip.summary.time, mans: leg.maneuvers };
+  const route = { pts, dpts: pts, cum, total: cum[cum.length - 1], time: d.trip.summary.time, mans: leg.maneuvers };
+  if (S.mode === 'pedestrian') {
+    try { route.dpts = offsetLine(pts, await sideOffsets(leg.shape, pts.length)); } catch {}
+  }
+  return route;
+}
+
+// 걷기: 큰 도로는 중앙선 대신 오른쪽 보도 쪽에 선을 그림 (도로 등급별 대략적인 반폭, m)
+const HALF_WIDTH = { motorway:15, trunk:14, primary:12, secondary:9, tertiary:6.5, unclassified:4, residential:3.5, service_other:0 };
+async function sideOffsets(shape, n) {
+  const res = await fetch(ROUTER.replace('/route', '/trace_attributes'), { method:'POST', headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ encoded_polyline: shape, shape_match:'edge_walk', costing:'pedestrian',
+      filters:{ attributes:['edge.road_class','edge.use','edge.lane_count','edge.begin_shape_index','edge.end_shape_index'], action:'include' } }) });
+  const d = await res.json();
+  const off = new Array(n - 1).fill(0);
+  for (const e of d.edges || []) {
+    const footway = /footway|sidewalk|pedestrian|path|steps|crossing|cycleway|track|living_street/.test(e.use || '');
+    let w = footway ? 0 : (HALF_WIDTH[e.road_class] ?? 0);
+    if (!footway && e.lane_count > 1) w = Math.max(w, e.lane_count * 3.2 + 1.5);
+    for (let i = e.begin_shape_index; i < e.end_shape_index && i < n - 1; i++) off[i] = w;
+  }
+  return off;
+}
+// 선을 진행 방향 오른쪽으로 off[i] m만큼 평행 이동
+function offsetLine(pts, off) {
+  if (!off.some((v) => v > 0)) return pts;
+  const lat0 = pts[0][0], kx = Math.cos(lat0 * Math.PI / 180) * 111320, ky = 110540;
+  const xy = pts.map(([la, lo]) => [(lo - pts[0][1]) * kx, (la - lat0) * ky]);
+  const nrm = [];
+  for (let i = 0; i < xy.length - 1; i++) {
+    const dx = xy[i + 1][0] - xy[i][0], dy = xy[i + 1][1] - xy[i][1], L = Math.hypot(dx, dy);
+    nrm.push(L < 0.01 ? (nrm[i - 1] || [0, 0]) : [dy / L, -dx / L]);   // 오른쪽 법선
+  }
+  const out = xy.map((p, j) => {
+    const a = nrm[j - 1], b = nrm[j];
+    let n, o;
+    if (!a) { n = b; o = off[j]; } else if (!b) { n = a; o = off[j - 1]; }
+    else {
+      o = (off[j - 1] + off[j]) / 2;
+      const sx = a[0] + b[0], sy = a[1] + b[1], sl = Math.hypot(sx, sy);
+      if (sl < 0.3) n = b;                                                  // 거의 되돌아가는 꺾임
+      else { const cos = sl / 2; n = [sx / sl / Math.max(cos, 0.5), sy / sl / Math.max(cos, 0.5)]; }
+    }
+    return [p[0] + n[0] * o, p[1] + n[1] * o];
+  });
+  return out.map(([x, y]) => [lat0 + y / ky, pts[0][1] + x / kx]);
 }
 
 async function requestRoute() {
@@ -483,13 +537,14 @@ async function requestRoute() {
 }
 
 function drawRoute() {
-  const pts = S.route.pts;
-  [routeCasing, routeLine, doneLine].forEach((l) => l && map.removeLayer(l));
+  const pts = S.route.dpts;
+  [routeCasing, routeLine].forEach((l) => l && map.removeLayer(l));
   routeCasing = L.polyline(pts, { color:'#ffffff', weight:11, opacity:.9, interactive:false }).addTo(map);
   routeLine = L.polyline(pts, { color:'#1f62b0', weight:7, opacity:.95, interactive:false,
     dashArray: S.mode === 'pedestrian' ? '1 12' : null, lineCap:'round' }).addTo(map);
   if (S.mode === 'pedestrian') routeLine.setStyle({ weight:8 });
-  doneLine = L.polyline([], { color:'#8796a8', weight:7, opacity:.85, interactive:false }).addTo(map);
+  if (!doneLine) doneLine = L.polyline([], { color:'#9aa5b4', weight:8, opacity:.95, interactive:false, lineCap:'round', lineJoin:'round' }).addTo(map);
+  doneLine.bringToFront();
   meMarker && meMarker.setZIndexOffset(1000);
 }
 
@@ -515,6 +570,7 @@ function clearRoute() {
 // ── 안내 ────────────────────────────────────────
 function startNav(sim) {
   if (!S.route) return;
+  if (doneLine) doneLine.setLatLngs([]);
   S.nav = true; S.follow = true; S.idx = 0; S.along = 0; S.offCount = 0; S.spoken.clear();
   $('top').hidden = true; $('preview').hidden = true; $('gpsNote').hidden = true;
   $('banner').hidden = false; $('navbar').hidden = false;
@@ -556,7 +612,7 @@ function project(lat, lng) {
     if (d < best.d) best = { d, i, t };
   }
   const along = cum[best.i] + (cum[best.i + 1] - cum[best.i]) * best.t;
-  return { off: best.d, idx: best.i, along };
+  return { off: best.d, idx: best.i, t: best.t, along };
 }
 
 function onNavTick() {
@@ -573,7 +629,12 @@ function onNavTick() {
 
   S.idx = p.idx; S.along = Math.max(S.along, p.along - 5) ;
   const along = p.along;
-  doneLine.setLatLngs([...R.pts.slice(0, p.idx + 1), [lat, lng]]);
+  const trail = doneLine.getLatLngs();
+  if (!trail.length || map.distance(trail[trail.length - 1], [lat, lng]) > 2) doneLine.addLatLng([lat, lng]);
+  const dp = R.dpts, a = dp[p.idx], b = dp[p.idx + 1] || a;
+  const here = [a[0] + (b[0] - a[0]) * p.t, a[1] + (b[1] - a[1]) * p.t];
+  const rest = [here, ...dp.slice(p.idx + 1)];
+  routeLine.setLatLngs(rest); routeCasing.setLatLngs(rest);
 
   // 도착
   const remain = Math.max(0, R.total - along);
@@ -635,8 +696,9 @@ function startSim() {
     if (d >= R.total) d = R.total;
     let i = S.idx; while (i < R.cum.length - 2 && R.cum[i + 1] < d) i++;
     const seg = R.cum[i + 1] - R.cum[i] || 1, t = (d - R.cum[i]) / seg;
-    const lat = R.pts[i][0] + (R.pts[i + 1][0] - R.pts[i][0]) * t;
-    const lng = R.pts[i][1] + (R.pts[i + 1][1] - R.pts[i][1]) * t;
+    const P = R.dpts;
+    const lat = P[i][0] + (P[i + 1][0] - P[i][0]) * t;
+    const lng = P[i][1] + (P[i + 1][1] - P[i][1]) * t;
     setMe(lat, lng, 5, bearing(R.pts[i][0], R.pts[i][1], R.pts[i + 1][0], R.pts[i + 1][1]));
   }, 400);
   toast(`모의 주행 · 초속 ${speed}m로 경로를 따라갑니다.`);
@@ -748,6 +810,7 @@ document.addEventListener('visibilitychange', () => { if (S.nav && document.visi
 document.querySelectorAll('.modes button').forEach((b) => b.onclick = () => {
   document.querySelectorAll('.modes button').forEach((x) => x.setAttribute('aria-pressed', x === b));
   S.mode = b.dataset.mode;
+  if (meMarker) { meMarker.setIcon(meIcon()); paintArrow(); }
   if (S.dest && S.me) requestRoute();
 });
 $('startBtn').onclick = () => {
@@ -765,7 +828,18 @@ $('locBtn').onclick = () => {
   if (map.getZoom() < 16) map.setZoom(17, { animate:false });
   followView(true);
 };
-map.on('dragstart', () => { S.follow = false; $('locBtn').classList.remove('on'); });
+// 두 손가락(핀치) 확대는 따라가기를 끄지 않음, 한 손가락으로 밀 때만 멈춤
+let fingers = 0, pinchAt = 0;
+document.addEventListener('touchstart', (e) => { fingers = e.touches.length; if (fingers > 1) pinchAt = Date.now(); }, { passive:true, capture:true });
+document.addEventListener('touchend', (e) => { fingers = e.touches.length; }, { passive:true, capture:true });
+map.on('dragstart', () => {
+  const was = S.follow;
+  setTimeout(() => {
+    if (fingers > 1 || Date.now() - pinchAt < 400) { if (was) S.follow = true; return; }
+    S.follow = false; $('locBtn').classList.remove('on');
+  }, 120);
+});
+map.on('zoomend', () => { if (S.follow) followView(true); });
 $('layerBtn').onclick = () => { $('layerMenu').hidden = !$('layerMenu').hidden; };
 document.querySelectorAll('#layerMenu button').forEach((b) => b.onclick = () => {
   map.removeLayer(curLayer); curLayer = layers[b.dataset.layer].addTo(map); curLayer.bringToBack?.();
@@ -789,9 +863,10 @@ layoutFloating();
 function setBearing(b) { S.viewBearing = b; if (map.setBearing) map.setBearing(b); paintArrow(); paintHead(); }
 // 화면 위쪽이 가리키는 실제 방위 = -지도회전
 function paintArrow() {
-  const arrow = document.getElementById('meArrow');
-  if (!arrow || !S.me) return;
-  arrow.style.transform = S.me.heading != null ? `rotate(${S.me.heading + S.viewBearing}deg)` : '';
+  const cone = document.getElementById('meCone');
+  if (!cone || !S.me) return;
+  cone.style.display = S.me.heading != null ? '' : 'none';
+  if (S.me.heading != null) cone.style.transform = `rotate(${S.me.heading + S.viewBearing}deg)`;
 }
 function paintHead() {
   $('headIco').style.transform = `rotate(${S.viewBearing}deg)`;   // 빨간 바늘 = 북쪽
