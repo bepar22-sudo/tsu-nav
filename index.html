@@ -1,0 +1,700 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>TSU 내비</title>
+<meta name="theme-color" content="#0f3c73">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TSU 내비">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f3c73'/%3E%3Cpath d='M32 12l14 38-14-8-14 8z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230f3c73'/%3E%3Cpath d='M32 12l14 38-14-8-14 8z' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+/* 한 화면 지도 앱: 위는 검색/안내 띠, 아래는 경로 시트, 오른쪽은 떠 있는 버튼 */
+:root {
+  --navy: #0f3c73;      /* 남색 띠 */
+  --blue: #1f62b0;      /* 주 버튼 */
+  --sky: #4d8fd6;       /* 보조 */
+  --mist: #dbe7f5;      /* 옅은 강조 */
+  --bg: #eef1f5;        /* 카드 바탕 */
+  --card: #ffffff;
+  --ink: #18222f;
+  --sub: #5c6b7e;
+  --line: #d5dde8;
+  --route: #1f62b0;
+  --go: #12805c;
+  --warn: #c2410c;
+  --shadow: 0 8px 24px rgba(15,60,115,.18), 0 1px 3px rgba(15,60,115,.12);
+  --font: 'Pretendard Variable', Pretendard, -apple-system, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  --st: env(safe-area-inset-top, 0px);
+  --sb: env(safe-area-inset-bottom, 0px);
+  --sl: env(safe-area-inset-left, 0px);
+  --sr: env(safe-area-inset-right, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#1a2230; --card:#232d3d; --ink:#e8eef6; --sub:#9fb0c6; --line:#34425a; --mist:#2a3a55; color-scheme: dark; }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin:0; height:100%; overflow:hidden; font-family:var(--font); color:var(--ink); background:var(--bg); }
+#map { position:fixed; inset:0; background:#dfe6ee; }
+button { font:inherit; color:inherit; cursor:pointer; border:0; background:none; }
+button:focus-visible, input:focus-visible { outline:3px solid var(--sky); outline-offset:2px; }
+[hidden] { display:none !important; }
+
+/* ── 검색 ─────────────────────────── */
+#top { position:fixed; z-index:1000; top:calc(var(--st) + 10px); left:calc(var(--sl) + 10px); right:calc(var(--sr) + 10px); display:flex; flex-direction:column; gap:8px; }
+.search { display:flex; align-items:center; gap:6px; background:var(--card); border-radius:16px; box-shadow:var(--shadow); padding:6px 6px 6px 14px; }
+.search svg { flex:none; width:20px; height:20px; stroke:var(--sub); }
+.search input { flex:1; min-width:0; border:0; outline:0; background:transparent; font:inherit; font-size:16px; color:var(--ink); padding:8px 2px; }
+.search .clear { width:36px; height:36px; border-radius:10px; display:grid; place-items:center; color:var(--sub); }
+.modes { display:flex; gap:6px; }
+.modes button { flex:1; padding:9px 0; border-radius:12px; background:var(--card); box-shadow:var(--shadow); font-size:14px; font-weight:600; color:var(--sub); display:flex; align-items:center; justify-content:center; gap:6px; }
+.modes button svg { width:18px; height:18px; }
+.modes button[aria-pressed="true"] { background:var(--navy); color:#fff; }
+#results { background:var(--card); border-radius:16px; box-shadow:var(--shadow); max-height:52vh; overflow:auto; }
+#results .item { display:block; width:100%; text-align:left; padding:12px 16px; border-bottom:1px solid var(--line); }
+#results .item:last-child { border-bottom:0; }
+#results .t { font-weight:700; font-size:15px; }
+#results .a { font-size:13px; color:var(--sub); margin-top:2px; }
+#results .d { float:right; font-size:12px; color:var(--blue); font-weight:600; font-variant-numeric:tabular-nums; margin-left:8px; }
+#results .empty { padding:14px 16px; color:var(--sub); font-size:14px; }
+
+/* ── 안내 띠 ─────────────────────── */
+#banner { position:fixed; z-index:1000; top:0; left:0; right:0; padding:calc(var(--st) + 12px) calc(var(--sr) + 14px) 14px calc(var(--sl) + 14px); background:var(--navy); color:#fff; box-shadow:0 6px 20px rgba(0,0,0,.25); display:flex; gap:14px; align-items:center; }
+#banner .ico { flex:none; width:64px; height:64px; border-radius:16px; background:rgba(255,255,255,.12); display:grid; place-items:center; }
+#banner .ico svg { width:44px; height:44px; stroke:#fff; }
+#banner .txt { min-width:0; flex:1; }
+#bDist { font-size:30px; font-weight:800; letter-spacing:-.5px; font-variant-numeric:tabular-nums; line-height:1.1; }
+#bText { font-size:17px; font-weight:600; margin-top:2px; line-height:1.35; text-wrap:balance; }
+#bNext { font-size:13px; opacity:.75; margin-top:4px; }
+#offroute { position:fixed; z-index:1001; left:50%; transform:translateX(-50%); top:calc(var(--st) + 112px); background:var(--warn); color:#fff; padding:8px 14px; border-radius:999px; font-size:14px; font-weight:600; box-shadow:var(--shadow); white-space:nowrap; }
+
+/* ── 아래 시트 ───────────────────── */
+.sheet { position:fixed; z-index:1000; left:0; right:0; bottom:0; background:var(--card); border-radius:20px 20px 0 0; box-shadow:0 -6px 24px rgba(15,60,115,.18); padding:16px calc(var(--sr) + 16px) calc(var(--sb) + 14px) calc(var(--sl) + 16px); }
+.sheet h2 { margin:0; font-size:18px; line-height:1.3; text-wrap:balance; }
+.sheet .addr { font-size:13px; color:var(--sub); margin-top:2px; }
+.stats { display:flex; gap:18px; margin:14px 0; align-items:baseline; }
+.stats div { display:flex; flex-direction:column; }
+.stats b { font-size:22px; font-weight:800; font-variant-numeric:tabular-nums; }
+.stats span { font-size:12px; color:var(--sub); letter-spacing:.02em; }
+.stats .big b { font-size:26px; color:var(--go); }
+.row { display:flex; gap:8px; }
+.btn { flex:1; padding:14px 0; border-radius:14px; font-weight:700; font-size:16px; background:var(--bg); color:var(--ink); }
+.btn.primary { background:var(--blue); color:#fff; flex:2; }
+.btn.stop { background:#b91c1c; color:#fff; flex:none; padding:14px 20px; }
+#navbar .stats { margin:0; flex:1; justify-content:space-around; }
+#navbar { display:flex; align-items:center; gap:10px; padding-top:12px; }
+
+/* ── 떠 있는 버튼 ─────────────────── */
+#fabs { position:fixed; z-index:999; right:calc(var(--sr) + 12px); display:flex; flex-direction:column; gap:10px; transition:bottom .2s; }
+.fab { width:48px; height:48px; border-radius:14px; background:var(--card); box-shadow:var(--shadow); display:grid; place-items:center; }
+.fab svg { width:24px; height:24px; stroke:var(--ink); }
+.fab.on { background:var(--navy); }
+.fab.on svg { stroke:#fff; }
+#layerMenu { position:absolute; right:58px; bottom:0; background:var(--card); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; display:flex; flex-direction:column; min-width:110px; }
+#layerMenu button { padding:11px 14px; text-align:left; font-size:14px; border-bottom:1px solid var(--line); }
+#layerMenu button:last-child { border-bottom:0; }
+#layerMenu button[aria-pressed="true"] { color:var(--blue); font-weight:700; }
+
+#toast { position:fixed; z-index:1100; left:50%; transform:translateX(-50%); bottom:calc(var(--sb) + 24px); background:rgba(24,34,47,.92); color:#fff; padding:10px 16px; border-radius:12px; font-size:14px; max-width:calc(100% - 32px); text-align:center; line-height:1.45; pointer-events:none; transition:opacity .3s; }
+#gpsNote { position:fixed; z-index:998; left:calc(var(--sl) + 10px); right:calc(var(--sr) + 70px); background:var(--card); border-radius:14px; box-shadow:var(--shadow); padding:10px 14px; font-size:13px; line-height:1.5; color:var(--sub); }
+#gpsNote b { color:var(--ink); }
+
+/* 지도 위 표시 */
+.me { width:34px; height:34px; position:relative; }
+.me .halo { position:absolute; inset:0; border-radius:50%; background:rgba(31,98,176,.18); }
+.me svg { position:absolute; inset:3px; width:28px; height:28px; transition:transform .4s; }
+.dest-pin svg { width:34px; height:42px; filter:drop-shadow(0 2px 3px rgba(0,0,0,.35)); }
+.leaflet-popup-content { font-family:var(--font); font-size:14px; margin:12px 14px; }
+.leaflet-popup-content button { display:block; width:100%; margin-top:6px; padding:9px 12px; border-radius:10px; background:var(--blue); color:#fff; font-weight:700; }
+.leaflet-popup-content button.alt { background:#e5ebf3; color:#18222f; }
+.leaflet-control-attribution { font-size:10px; }
+@media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+
+<!-- 검색 -->
+<div id="top">
+  <form class="search" id="searchForm" autocomplete="off">
+    <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+    <input id="q" type="search" enterkeyhint="search" placeholder="목적지 검색 (장소·주소)" aria-label="목적지 검색">
+    <button type="button" class="clear" id="clearBtn" aria-label="지우기" hidden>
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </form>
+  <div class="modes" role="group" aria-label="이동 수단">
+    <button data-mode="pedestrian" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="13" cy="4" r="2"/><path d="M10 21l2-6 3 3v3M8 12l3-4 3 2 3 1M11 8l-1 5"/></svg>도보</button>
+    <button data-mode="bicycle" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="16" r="4"/><circle cx="18" cy="16" r="4"/><path d="M6 16l4-8h5l3 8M10 8l4 8M14 5h2"/></svg>자전거</button>
+    <button data-mode="auto" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v-4l2-5h12l2 5v4z"/><circle cx="8" cy="16.5" r="1.6"/><circle cx="16" cy="16.5" r="1.6"/><path d="M4 12h16"/></svg>자동차</button>
+  </div>
+  <div id="results" hidden></div>
+</div>
+
+<div id="gpsNote" hidden></div>
+
+<!-- 안내 띠 -->
+<div id="banner" hidden>
+  <div class="ico" id="bIco"></div>
+  <div class="txt">
+    <div id="bDist">-</div>
+    <div id="bText">-</div>
+    <div id="bNext"></div>
+  </div>
+</div>
+<div id="offroute" hidden>경로를 벗어났습니다 · 다시 찾는 중</div>
+
+<!-- 떠 있는 버튼 -->
+<div id="fabs">
+  <div style="position:relative">
+    <button class="fab" id="layerBtn" aria-label="지도 종류"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></button>
+    <div id="layerMenu" hidden>
+      <button data-layer="Base" aria-pressed="true">일반지도</button>
+      <button data-layer="Satellite" aria-pressed="false">위성지도</button>
+      <button data-layer="midnight" aria-pressed="false">야간지도</button>
+      <button data-layer="white" aria-pressed="false">흰색지도</button>
+    </div>
+  </div>
+  <button class="fab" id="voiceBtn" aria-label="음성 안내"></button>
+  <button class="fab" id="locBtn" aria-label="내 위치"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+</div>
+
+<!-- 경로 미리보기 -->
+<div class="sheet" id="preview" hidden>
+  <h2 id="pName">-</h2>
+  <div class="addr" id="pAddr"></div>
+  <div class="stats">
+    <div class="big"><b id="pTime">-</b><span>소요 시간</span></div>
+    <div><b id="pDist">-</b><span>거리</span></div>
+    <div><b id="pEta">-</b><span>도착 예정</span></div>
+  </div>
+  <div class="row">
+    <button class="btn" id="cancelBtn">취소</button>
+    <button class="btn" id="simBtn">모의 주행</button>
+    <button class="btn primary" id="startBtn">안내 시작</button>
+  </div>
+</div>
+
+<!-- 안내 중 -->
+<div class="sheet" id="navbar" hidden>
+  <div class="stats">
+    <div><b id="nTime">-</b><span>남은 시간</span></div>
+    <div><b id="nDist">-</b><span>남은 거리</span></div>
+    <div><b id="nEta">-</b><span>도착 예정</span></div>
+  </div>
+  <button class="btn stop" id="stopBtn">종료</button>
+</div>
+
+<div id="toast" style="opacity:0"></div>
+
+<script>
+'use strict';
+// ── 설정 ──────────────────────────────────────────
+const VWORLD_KEY = '348AFADA-F76F-4783-91E0-1C3F4AFFEAA1';
+const ROUTER = 'https://valhalla1.openstreetmap.de/route';   // OpenStreetMap 경로 계산(무료 공개 서버)
+const START_VIEW = [35.9297, 128.5442];                      // 위치를 받기 전: 대구과학대학교
+const MODE = {
+  pedestrian: { label:'도보',   offRoute:30, speak:[60, 15],        sim:6 },
+  bicycle:    { label:'자전거', offRoute:40, speak:[150, 30],       sim:9 },
+  auto:       { label:'자동차', offRoute:50, speak:[700, 250, 40],  sim:18 },
+};
+
+// ── 지도 ──────────────────────────────────────────
+const map = L.map('map', { zoomControl:false, attributionControl:true }).setView(START_VIEW, 16);
+map.attributionControl.setPrefix(false).addAttribution('지도 © 브이월드 · 경로 © OpenStreetMap, Valhalla');
+const vw = (layer) => L.tileLayer(
+  `https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/${layer}/{z}/{y}/{x}.${layer === 'Satellite' ? 'jpeg' : 'png'}`,
+  { minZoom:6, maxZoom:19 });
+const layers = {
+  Base: vw('Base'),
+  Satellite: L.layerGroup([vw('Satellite'), vw('Hybrid')]),
+  midnight: vw('midnight'),
+  white: vw('white'),
+};
+let curLayer = layers.Base.addTo(map);
+L.control.scale({ imperial:false, position:'bottomleft' }).addTo(map);
+
+// ── 상태 ──────────────────────────────────────────
+const S = {
+  mode: 'pedestrian',
+  me: null,            // {lat,lng,acc,heading}
+  gps: 'wait',         // wait | ok | denied | none
+  manualStart: false,  // GPS 대신 지도에서 출발지를 찍음
+  dest: null,          // {lat,lng,name,addr}
+  route: null,         // {pts, cum, total, time, mans}
+  nav: false, sim: null, follow: true,
+  idx: 0, along: 0, offCount: 0, lastReroute: 0, rerouting: false,
+  spoken: new Set(), voice: true, wake: null,
+};
+let meMarker = null, accCircle = null, destMarker = null, routeLine = null, routeCasing = null, doneLine = null;
+
+const $ = (id) => document.getElementById(id);
+const toastEl = $('toast'); let toastT;
+function toast(msg, ms = 2600) { toastEl.textContent = msg; toastEl.style.opacity = 1; clearTimeout(toastT); toastT = setTimeout(() => toastEl.style.opacity = 0, ms); }
+
+// ── 표시 형식 ─────────────────────────────────────
+const fmtDist = (m) => m >= 1000 ? (m / 1000).toFixed(m >= 10000 ? 0 : 1) + 'km' : Math.max(0, Math.round(m / 10) * 10) + 'm';
+const fmtTime = (s) => { const m = Math.round(s / 60); return m < 60 ? Math.max(1, m) + '분' : Math.floor(m / 60) + '시간 ' + (m % 60) + '분'; };
+const fmtEta = (s) => new Date(Date.now() + s * 1000).toLocaleTimeString('ko-KR', { hour:'numeric', minute:'2-digit' });
+const speakDist = (m) => m >= 1000 ? (m / 1000).toFixed(1).replace('.0', '') + '킬로미터' : Math.round(m / 10) * 10 + '미터';
+
+// ── 아이콘 ────────────────────────────────────────
+const SVG = (inner, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${inner}</svg>`;
+const ICON = {
+  straight: '<path d="M12 21V5"/><path d="M6 11l6-6 6 6"/>',
+  right:    '<path d="M7 21v-8a4 4 0 0 1 4-4h9"/><path d="M15 4l5 5-5 5"/>',
+  slight:   '<path d="M9 21v-6L17 7"/><path d="M10.5 7H17v6.5"/>',
+  sharp:    '<path d="M8 3v10l9 7"/><path d="M11 20.5h6.5V14"/>',
+  uturn:    '<path d="M8 21V9a4 4 0 0 1 8 0v6"/><path d="M12 12l4 4 4-4"/>',
+  round:    '<circle cx="12" cy="10" r="4"/><path d="M12 21v-7M15 7l4-4M15 3h4v4"/>',
+  arrive:   '<path d="M12 21s-6-5.5-6-10a6 6 0 0 1 12 0c0 4.5-6 10-6 10z"/><circle cx="12" cy="11" r="2"/>',
+  merge:    '<path d="M12 21v-8L6 5M12 13l6-8"/><path d="M15 5h3v3"/>',
+};
+// Valhalla 회전 종류 → 아이콘(왼쪽은 좌우 반전)
+function maneuverIcon(type) {
+  const L = 'style="transform:scaleX(-1)"';
+  const map = {
+    9:['slight'], 10:['right'], 11:['sharp'], 12:['uturn', L], 13:['uturn'],
+    14:['sharp', L], 15:['right', L], 16:['slight', L],
+    18:['slight'], 19:['slight', L], 20:['slight'], 21:['slight', L],
+    23:['slight'], 24:['slight', L], 25:['merge'], 26:['round'], 27:['round'],
+    4:['arrive'], 5:['arrive'], 6:['arrive'],
+  };
+  const [k, ex] = map[type] || ['straight'];
+  return SVG(ICON[k], ex || '');
+}
+const VOICE_ON = SVG('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a8 8 0 0 1 0 11"/>');
+const VOICE_OFF = SVG('<path d="M4 9v6h4l5 4V5L8 9z"/><path d="M17 9l5 6M22 9l-5 6"/>');
+
+const meIcon = () => L.divIcon({ className:'', iconSize:[34,34], iconAnchor:[17,17],
+  html:`<div class="me"><div class="halo"></div><svg viewBox="0 0 28 28" id="meArrow"><circle cx="14" cy="14" r="10" fill="#1f62b0" stroke="#fff" stroke-width="3"/><path d="M14 7l4.5 10L14 14.6 9.5 17z" fill="#fff"/></svg></div>` });
+const destIcon = L.divIcon({ className:'dest-pin', iconSize:[34,42], iconAnchor:[17,41],
+  html:'<svg viewBox="0 0 34 42"><path d="M17 41S3 26 3 16a14 14 0 0 1 28 0c0 10-14 25-14 25z" fill="#c2410c" stroke="#fff" stroke-width="2.5"/><circle cx="17" cy="16" r="5" fill="#fff"/></svg>' });
+
+// ── 내 위치 ──────────────────────────────────────
+function setMe(lat, lng, acc = 10, heading = null) {
+  const prev = S.me;
+  if (heading == null && prev) {
+    const d = map.distance([prev.lat, prev.lng], [lat, lng]);
+    heading = d > 2 ? bearing(prev.lat, prev.lng, lat, lng) : prev.heading;
+  }
+  S.me = { lat, lng, acc, heading };
+  if (!meMarker) {
+    meMarker = L.marker([lat, lng], { icon: meIcon(), zIndexOffset: 1000, interactive:false }).addTo(map);
+    accCircle = L.circle([lat, lng], { radius: acc, color:'#1f62b0', weight:1, opacity:.4, fillOpacity:.08, interactive:false }).addTo(map);
+  } else {
+    meMarker.setLatLng([lat, lng]); accCircle.setLatLng([lat, lng]).setRadius(acc);
+  }
+  const arrow = document.getElementById('meArrow');
+  if (arrow) arrow.style.transform = heading != null ? `rotate(${heading}deg)` : '';
+  if (S.nav) onNavTick();
+}
+
+function onGps(pos) {
+  if (S.sim) return;
+  const c = pos.coords;
+  const first = S.gps !== 'ok';
+  S.gps = 'ok'; S.manualStart = false; updateGpsNote();
+  const h = (c.heading != null && !isNaN(c.heading) && c.speed > 0.8) ? c.heading : null;
+  setMe(c.latitude, c.longitude, c.accuracy, h);
+  if (first && !S.dest) map.setView([c.latitude, c.longitude], 17);
+  if (S.nav && S.follow) map.panTo([c.latitude, c.longitude], { animate:true });
+}
+function onGpsErr(err) {
+  if (S.gps === 'ok') return;
+  S.gps = err.code === 1 ? 'denied' : 'none';
+  updateGpsNote();
+}
+function updateGpsNote() {
+  const n = $('gpsNote');
+  if (S.gps === 'ok' || S.manualStart || S.nav) { n.hidden = true; return; }
+  const why = location.protocol !== 'https:' && !['localhost','127.0.0.1'].includes(location.hostname)
+    ? '위치 기능은 <b>https://</b> 주소에서만 켜집니다.'
+    : S.gps === 'denied' ? '<b>위치 권한이 꺼져 있습니다.</b> 브라우저 설정에서 이 사이트의 위치를 허용해 주세요.'
+    : S.gps === 'none' ? '<b>위치를 찾지 못했습니다.</b> GPS를 켜고 하늘이 보이는 곳에서 다시 시도해 보세요.'
+    : '<b>현재 위치를 찾는 중…</b>';
+  n.innerHTML = why + (S.gps === 'wait' ? '' : '<br>지도를 <b>길게 누르면</b> 그곳을 출발지로 정할 수 있습니다.');
+  n.hidden = false; layoutFloating();
+}
+
+if ('geolocation' in navigator) {
+  navigator.geolocation.watchPosition(onGps, onGpsErr, { enableHighAccuracy:true, maximumAge:2000, timeout:15000 });
+  setTimeout(updateGpsNote, 1500);
+} else { S.gps = 'none'; updateGpsNote(); }
+
+// ── 검색 (브이월드 검색 API, JSONP) ────────────────
+let jsonpSeq = 0;
+function jsonp(url, ms = 8000) {
+  return new Promise((resolve, reject) => {
+    const cb = '__vw' + (++jsonpSeq);
+    const s = document.createElement('script');
+    const done = () => { delete window[cb]; s.remove(); clearTimeout(t); };
+    const t = setTimeout(() => { done(); reject(new Error('timeout')); }, ms);
+    window[cb] = (d) => { done(); resolve(d); };
+    s.onerror = () => { done(); reject(new Error('network')); };
+    s.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cb;
+    document.head.appendChild(s);
+  });
+}
+async function vwSearch(query, type, category) {
+  let url = 'https://api.vworld.kr/req/search?service=search&request=search&version=2.0&crs=EPSG:4326&size=10&page=1&format=json&errorformat=json'
+    + `&type=${type}&query=${encodeURIComponent(query)}&key=${VWORLD_KEY}`;
+  if (category) url += '&category=' + category;
+  if (S.me) { // 현재 위치 둘레 약 30km 안을 먼저
+    const d = 0.3; url += `&bbox=${S.me.lng - d},${S.me.lat - d},${S.me.lng + d},${S.me.lat + d}`;
+  }
+  try {
+    const r = (await jsonp(url)).response;
+    if (r.status !== 'OK') return [];
+    return r.result.items.map((it) => ({
+      lat: +it.point.y, lng: +it.point.x,
+      name: type === 'place' ? it.title : (it.address.road || it.address.parcel),
+      addr: type === 'place' ? (it.address.road || it.address.parcel) : (it.address.parcel || ''),
+      cat: it.category || '',
+    }));
+  } catch { return []; }
+}
+async function doSearch(query) {
+  const box = $('results');
+  box.innerHTML = '<div class="empty">찾는 중…</div>'; box.hidden = false;
+  let [place, road, parcel] = await Promise.all([
+    vwSearch(query, 'place'), vwSearch(query, 'address', 'road'), vwSearch(query, 'address', 'parcel')]);
+  let list = [...place, ...road, ...parcel];
+  if (!list.length && S.me) { // 근처에서 못 찾으면 전국에서
+    const saved = S.me; S.me = null;
+    [place, road] = await Promise.all([vwSearch(query, 'place'), vwSearch(query, 'address', 'road')]);
+    S.me = saved; list = [...place, ...road];
+  }
+  if (S.me) list.forEach((x) => x.dist = map.distance([S.me.lat, S.me.lng], [x.lat, x.lng]));
+  if (S.me) list.sort((a, b) => a.dist - b.dist);
+  box.innerHTML = '';
+  if (!list.length) { box.innerHTML = '<div class="empty">검색 결과가 없습니다. 장소 이름이나 도로명 주소로 다시 찾아보세요.</div>'; return; }
+  for (const x of list.slice(0, 15)) {
+    const b = document.createElement('button');
+    b.className = 'item';
+    b.innerHTML = (x.dist != null ? `<span class="d">${fmtDist(x.dist)}</span>` : '') + '<div class="t"></div><div class="a"></div>';
+    b.querySelector('.t').textContent = x.name;
+    b.querySelector('.a').textContent = x.addr;
+    b.onclick = () => { box.hidden = true; $('q').blur(); setDest(x); };
+    box.appendChild(b);
+  }
+}
+$('searchForm').addEventListener('submit', (e) => { e.preventDefault(); const q = $('q').value.trim(); if (q) doSearch(q); });
+$('q').addEventListener('input', () => { $('clearBtn').hidden = !$('q').value; if (!$('q').value) $('results').hidden = true; });
+$('clearBtn').onclick = () => { $('q').value = ''; $('clearBtn').hidden = true; $('results').hidden = true; $('q').focus(); };
+
+// ── 주소 (브이월드 주소 API) ───────────────────────
+async function reverse(lat, lng) {
+  try {
+    const r = (await jsonp(`https://api.vworld.kr/req/address?service=address&request=getAddress&version=2.0&crs=epsg:4326&point=${lng},${lat}&format=json&type=both&key=${VWORLD_KEY}`)).response;
+    if (r.status !== 'OK') return '';
+    const road = r.result.find((x) => x.type === 'road'), parcel = r.result.find((x) => x.type === 'parcel');
+    return (road || parcel).text;
+  } catch { return ''; }
+}
+
+// ── 지도 길게 누르기 ─────────────────────────────
+map.on('contextmenu', async (e) => {
+  if (S.nav) return;
+  const { lat, lng } = e.latlng;
+  let addr = '';
+  const div = document.createElement('div');
+  div.innerHTML = '<div class="pa">주소 확인 중…</div><button data-a="dest">여기로 안내</button><button class="alt" data-a="start">여기를 출발지로</button>';
+  const pop = L.popup({ closeButton:false }).setLatLng(e.latlng).setContent(div).openOn(map);
+  div.querySelector('[data-a=dest]').onclick = async () => { map.closePopup(pop); setDest({ lat, lng, name: addr || '선택한 지점', addr: '' }); };
+  div.querySelector('[data-a=start]').onclick = () => {
+    map.closePopup(pop); S.manualStart = true; S.me = null; setMe(lat, lng, 5); updateGpsNote();
+    toast('출발지를 정했습니다. 이제 목적지를 검색하세요.');
+    if (S.dest) requestRoute();
+  };
+  addr = await reverse(lat, lng);
+  div.querySelector('.pa').textContent = addr || '주소 없음';
+});
+
+// ── 목적지 · 경로 ───────────────────────────────
+function setDest(x) {
+  S.dest = x;
+  if (destMarker) destMarker.setLatLng([x.lat, x.lng]); else destMarker = L.marker([x.lat, x.lng], { icon: destIcon }).addTo(map);
+  $('pName').textContent = x.name; $('pAddr').textContent = x.addr || '';
+  if (!S.me) { map.setView([x.lat, x.lng], 16); showPreview(null); toast('출발지를 모릅니다. 위치를 허용하거나 지도를 길게 눌러 출발지를 정하세요.', 4000); return; }
+  requestRoute();
+}
+
+function decode6(str) {
+  const pts = []; let i = 0, lat = 0, lng = 0;
+  while (i < str.length) {
+    for (const k of [0, 1]) {
+      let b, shift = 0, res = 0;
+      do { b = str.charCodeAt(i++) - 63; res |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = (res & 1) ? ~(res >> 1) : (res >> 1);
+      if (k === 0) lat += d; else lng += d;
+    }
+    pts.push([lat / 1e6, lng / 1e6]);
+  }
+  return pts;
+}
+
+async function fetchRoute(from, to) {
+  const body = {
+    locations: [{ lat: from.lat, lon: from.lng, ...(from.heading != null && S.nav ? { heading: Math.round(from.heading), heading_tolerance: 60 } : {}) }, { lat: to.lat, lon: to.lng }],
+    costing: S.mode, language: 'ko-KR', units: 'kilometers',
+  };
+  const res = await fetch(ROUTER, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+  const d = await res.json();
+  if (!d.trip) throw new Error(d.error || '경로 없음');
+  const leg = d.trip.legs[0];
+  const pts = decode6(leg.shape);
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + map.distance(pts[i - 1], pts[i]));
+  return { pts, cum, total: cum[cum.length - 1], time: d.trip.summary.time, mans: leg.maneuvers };
+}
+
+async function requestRoute() {
+  toast('경로를 찾는 중…', 8000);
+  try {
+    S.route = await fetchRoute(S.me, S.dest);
+    drawRoute();
+    toast(`${MODE[S.mode].label} 경로를 찾았습니다.`, 1500);
+    if (!S.nav) {
+      showPreview(S.route);
+      map.fitBounds(L.latLngBounds(S.route.pts), { paddingTopLeft:[30, 150], paddingBottomRight:[70, 250] });
+    }
+  } catch (e) {
+    toast('경로를 찾지 못했습니다. 잠시 뒤 다시 시도하거나 이동 수단을 바꿔 보세요. (' + e.message + ')', 5000);
+  }
+}
+
+function drawRoute() {
+  const pts = S.route.pts;
+  [routeCasing, routeLine, doneLine].forEach((l) => l && map.removeLayer(l));
+  routeCasing = L.polyline(pts, { color:'#ffffff', weight:11, opacity:.9, interactive:false }).addTo(map);
+  routeLine = L.polyline(pts, { color:'#1f62b0', weight:7, opacity:.95, interactive:false,
+    dashArray: S.mode === 'pedestrian' ? '1 12' : null, lineCap:'round' }).addTo(map);
+  if (S.mode === 'pedestrian') routeLine.setStyle({ weight:8 });
+  doneLine = L.polyline([], { color:'#8796a8', weight:7, opacity:.85, interactive:false }).addTo(map);
+  meMarker && meMarker.setZIndexOffset(1000);
+}
+
+function showPreview(r) {
+  $('pTime').textContent = r ? fmtTime(r.time) : '-';
+  $('pDist').textContent = r ? fmtDist(r.total) : '-';
+  $('pEta').textContent = r ? fmtEta(r.time) : '-';
+  $('startBtn').disabled = $('simBtn').disabled = !r;
+  $('startBtn').style.opacity = $('simBtn').style.opacity = r ? 1 : .45;
+  $('preview').hidden = false; $('results').hidden = true;
+  layoutFloating();
+}
+
+function clearRoute() {
+  [routeCasing, routeLine, doneLine, destMarker].forEach((l) => l && map.removeLayer(l));
+  routeCasing = routeLine = doneLine = destMarker = null;
+  S.route = null; S.dest = null;
+  $('preview').hidden = true; layoutFloating();
+}
+
+// ── 안내 ────────────────────────────────────────
+function startNav(sim) {
+  if (!S.route) return;
+  S.nav = true; S.follow = true; S.idx = 0; S.along = 0; S.offCount = 0; S.spoken.clear();
+  $('top').hidden = true; $('preview').hidden = true; $('gpsNote').hidden = true;
+  $('banner').hidden = false; $('navbar').hidden = false;
+  map.setView([S.me.lat, S.me.lng], S.mode === 'auto' ? 17 : 18);
+  layoutFloating();
+  keepAwake(true);
+  primeVoice();
+  const first = S.route.mans[0];
+  say(`안내를 시작합니다. ${first.verbal_pre_transition_instruction || first.instruction}`);
+  if (sim) startSim(); else onNavTick();
+}
+
+function stopNav(msg) {
+  S.nav = false; stopSim(); keepAwake(false);
+  $('banner').hidden = true; $('navbar').hidden = true; $('offroute').hidden = true;
+  $('top').hidden = false;
+  if (msg) toast(msg, 3500);
+  if (S.route) showPreview(S.route);
+  updateGpsNote(); layoutFloating();
+}
+
+// 경로 위 가장 가까운 점 찾기(앞쪽 위주로)
+function project(lat, lng) {
+  const { pts, cum } = S.route;
+  const kx = Math.cos(lat * Math.PI / 180) * 111320, ky = 110540;
+  let best = { d: Infinity, i: 0, t: 0 };
+  const from = Math.max(0, S.idx - 10), to = Math.min(pts.length - 1, S.idx + 400);
+  for (let i = from; i < to; i++) {
+    const ax = (pts[i][1] - lng) * kx, ay = (pts[i][0] - lat) * ky;
+    const bx = (pts[i + 1][1] - lng) * kx, by = (pts[i + 1][0] - lat) * ky;
+    const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+    let t = L2 ? -(ax * dx + ay * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+    const px = ax + t * dx, py = ay + t * dy, d = Math.hypot(px, py);
+    if (d < best.d) best = { d, i, t };
+  }
+  const along = cum[best.i] + (cum[best.i + 1] - cum[best.i]) * best.t;
+  return { off: best.d, idx: best.i, along };
+}
+
+function onNavTick() {
+  if (!S.nav || !S.route || !S.me || S.rerouting) return;
+  const { lat, lng, acc } = S.me;
+  const p = project(lat, lng);
+  const R = S.route, M = MODE[S.mode];
+
+  // 경로 이탈
+  if (!S.sim && p.off > Math.max(M.offRoute, (acc || 0) * 1.2)) {
+    S.offCount++;
+    if (S.offCount >= 3 && Date.now() - S.lastReroute > 8000) return reroute();
+  } else { S.offCount = 0; $('offroute').hidden = true; }
+
+  S.idx = p.idx; S.along = Math.max(S.along, p.along - 5) ;
+  const along = p.along;
+  doneLine.setLatLngs([...R.pts.slice(0, p.idx + 1), [lat, lng]]);
+
+  // 도착
+  const remain = Math.max(0, R.total - along);
+  if (remain < 20 || map.distance([lat, lng], [S.dest.lat, S.dest.lng]) < 15) {
+    say('목적지에 도착했습니다. 안내를 종료합니다.');
+    return stopNav(`${S.dest.name}에 도착했습니다.`);
+  }
+
+  // 다음 회전 지점
+  let k = R.mans.findIndex((m, j) => j > 0 && R.cum[m.begin_shape_index] > along + 3);
+  if (k < 0) k = R.mans.length - 1;
+  const man = R.mans[k], next = R.mans[k + 1];
+  const toMan = Math.max(0, R.cum[man.begin_shape_index] - along);
+
+  $('bIco').innerHTML = maneuverIcon(man.type);
+  $('bDist').textContent = fmtDist(toMan);
+  $('bText').textContent = man.instruction;
+  $('bNext').textContent = next && man.type !== 4 && (R.cum[next.begin_shape_index] - R.cum[man.begin_shape_index]) < 150
+    ? '이어서 ' + next.instruction : '';
+
+  const remTime = R.time * remain / R.total;
+  $('nTime').textContent = fmtTime(remTime);
+  $('nDist').textContent = fmtDist(remain);
+  $('nEta').textContent = fmtEta(remTime);
+
+  // 음성 안내 (거리 단계별 한 번씩)
+  const verbal = man.verbal_pre_transition_instruction || man.instruction;
+  M.speak.forEach((th, n) => {
+    const key = k + ':' + n;
+    const last = n === M.speak.length - 1;
+    if (toMan <= th && !S.spoken.has(key) && (last || toMan > M.speak[n + 1])) {
+      S.spoken.add(key);
+      for (let j = n + 1; j < M.speak.length; j++) if (toMan <= M.speak[j]) S.spoken.add(k + ':' + j);
+      say(last ? verbal : `${speakDist(toMan)} 앞에서 ${verbal}`);
+    }
+  });
+
+  if (S.follow) map.panTo([lat, lng], { animate:true, duration:.4 });
+}
+
+async function reroute() {
+  S.rerouting = true; S.lastReroute = Date.now(); S.offCount = 0;
+  $('offroute').hidden = false;
+  say('경로를 벗어났습니다. 경로를 다시 찾습니다.');
+  try {
+    S.route = await fetchRoute(S.me, S.dest);
+    drawRoute(); S.idx = 0; S.along = 0; S.spoken.clear();
+    say('새 경로로 안내합니다.');
+  } catch { toast('새 경로를 찾지 못했습니다. 잠시 뒤 다시 시도합니다.'); }
+  $('offroute').hidden = true; S.rerouting = false;
+  onNavTick();
+}
+
+// ── 모의 주행 (실제로 움직이지 않고 경로를 따라가 보기) ──
+function startSim() {
+  const R = S.route, speed = MODE[S.mode].sim; // m/s
+  let d = 0, last = performance.now();
+  S.sim = setInterval(() => {
+    const now = performance.now(); d += speed * (now - last) / 1000; last = now;
+    if (d >= R.total) d = R.total;
+    let i = S.idx; while (i < R.cum.length - 2 && R.cum[i + 1] < d) i++;
+    const seg = R.cum[i + 1] - R.cum[i] || 1, t = (d - R.cum[i]) / seg;
+    const lat = R.pts[i][0] + (R.pts[i + 1][0] - R.pts[i][0]) * t;
+    const lng = R.pts[i][1] + (R.pts[i + 1][1] - R.pts[i][1]) * t;
+    setMe(lat, lng, 5, bearing(R.pts[i][0], R.pts[i][1], R.pts[i + 1][0], R.pts[i + 1][1]));
+  }, 400);
+  toast(`모의 주행 · 초속 ${speed}m로 경로를 따라갑니다.`);
+}
+function stopSim() { if (S.sim) { clearInterval(S.sim); S.sim = null; } }
+
+// ── 음성 ────────────────────────────────────────
+let koVoice = null;
+function pickVoice() { const v = speechSynthesis.getVoices(); koVoice = v.find((x) => /ko[-_]KR/i.test(x.lang)) || null; }
+if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
+function primeVoice() { if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+function say(text) {
+  if (!S.voice || !('speechSynthesis' in window)) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'ko-KR'; if (koVoice) u.voice = koVoice; u.rate = 1.05;
+  speechSynthesis.cancel(); speechSynthesis.speak(u);
+}
+function paintVoice() { $('voiceBtn').innerHTML = S.voice ? VOICE_ON : VOICE_OFF; $('voiceBtn').classList.toggle('on', S.voice); $('voiceBtn').setAttribute('aria-pressed', S.voice); }
+$('voiceBtn').onclick = () => { S.voice = !S.voice; paintVoice(); toast(S.voice ? '음성 안내 켜짐' : '음성 안내 꺼짐', 1200); if (!S.voice) speechSynthesis.cancel(); };
+try { S.voice = localStorage.getItem('nav.voice') !== '0'; } catch {}
+paintVoice();
+window.addEventListener('pagehide', () => { try { localStorage.setItem('nav.voice', S.voice ? '1' : '0'); } catch {} });
+
+// ── 화면 꺼짐 방지 ──────────────────────────────
+async function keepAwake(on) {
+  try {
+    if (on && 'wakeLock' in navigator) S.wake = await navigator.wakeLock.request('screen');
+    else if (!on && S.wake) { await S.wake.release(); S.wake = null; }
+  } catch {}
+}
+document.addEventListener('visibilitychange', () => { if (S.nav && document.visibilityState === 'visible') keepAwake(true); });
+
+// ── 버튼 ────────────────────────────────────────
+document.querySelectorAll('.modes button').forEach((b) => b.onclick = () => {
+  document.querySelectorAll('.modes button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  S.mode = b.dataset.mode;
+  if (S.dest && S.me) requestRoute();
+});
+$('startBtn').onclick = () => {
+  if (S.gps !== 'ok' && !S.manualStart) return toast('현재 위치를 아직 모릅니다.');
+  if (S.gps !== 'ok') { toast('GPS가 없어 모의 주행으로 안내합니다.'); return startNav(true); }
+  startNav(false);
+};
+$('simBtn').onclick = () => startNav(true);
+$('cancelBtn').onclick = clearRoute;
+$('stopBtn').onclick = () => { say(''); stopNav('안내를 종료했습니다.'); };
+$('locBtn').onclick = () => {
+  if (!S.me) return toast('현재 위치를 아직 모릅니다.');
+  S.follow = true; $('locBtn').classList.add('on');
+  map.setView([S.me.lat, S.me.lng], Math.max(map.getZoom(), 17));
+};
+map.on('dragstart', () => { S.follow = false; $('locBtn').classList.remove('on'); });
+$('layerBtn').onclick = () => { $('layerMenu').hidden = !$('layerMenu').hidden; };
+document.querySelectorAll('#layerMenu button').forEach((b) => b.onclick = () => {
+  map.removeLayer(curLayer); curLayer = layers[b.dataset.layer].addTo(map); curLayer.bringToBack?.();
+  document.querySelectorAll('#layerMenu button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  $('layerMenu').hidden = true;
+});
+map.on('click', () => { $('layerMenu').hidden = true; $('results').hidden = true; });
+
+// 떠 있는 버튼·알림을 시트 위로
+function layoutFloating() {
+  const sheet = !$('preview').hidden ? $('preview') : !$('navbar').hidden ? $('navbar') : null;
+  const h = sheet ? sheet.offsetHeight : 0;
+  $('fabs').style.bottom = `calc(${h + 16}px + ${sheet ? '0px' : 'var(--sb)'})`;
+  toastEl.style.bottom = `calc(${h + 20}px + ${sheet ? '0px' : 'var(--sb)'})`;
+  const n = $('gpsNote'); n.style.bottom = `calc(${h + 16}px + var(--sb))`;
+}
+window.addEventListener('resize', layoutFloating);
+layoutFloating();
+
+function bearing(la1, lo1, la2, lo2) {
+  const r = Math.PI / 180, y = Math.sin((lo2 - lo1) * r) * Math.cos(la2 * r);
+  const x = Math.cos(la1 * r) * Math.sin(la2 * r) - Math.sin(la1 * r) * Math.cos(la2 * r) * Math.cos((lo2 - lo1) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+</script>
+</body>
+</html>
